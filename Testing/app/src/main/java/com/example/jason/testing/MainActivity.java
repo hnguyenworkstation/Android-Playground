@@ -15,13 +15,20 @@ package com.example.jason.testing;
  * limitations under the License.
  */
 
+        import android.Manifest;
+        import android.content.Context;
         import android.content.Intent;
+        import android.content.pm.PackageManager;
         import android.graphics.Color;
         import android.graphics.ColorFilter;
         import android.graphics.PorterDuff;
+        import android.location.Location;
+        import android.net.ConnectivityManager;
+        import android.net.NetworkInfo;
         import android.os.AsyncTask;
         import android.os.Bundle;
-import android.support.v4.app.Fragment;
+        import android.support.v4.app.ActivityCompat;
+        import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentActivity;
         import android.support.v4.app.FragmentManager;
         import android.support.v4.app.FragmentStatePagerAdapter;
@@ -37,6 +44,20 @@ import android.support.v4.view.ViewPager;
         import android.widget.Button;
         import android.widget.TextView;
 
+        import com.google.android.gms.common.ConnectionResult;
+        import com.google.android.gms.common.api.GoogleApiClient;
+        import com.google.android.gms.location.LocationRequest;
+        import com.google.android.gms.location.LocationServices;
+        import com.google.android.gms.location.places.Places;
+        import com.google.android.gms.maps.CameraUpdateFactory;
+        import com.google.android.gms.maps.GoogleMap;
+        import com.google.android.gms.maps.OnMapReadyCallback;
+        import com.google.android.gms.maps.SupportMapFragment;
+        import com.google.android.gms.maps.model.CameraPosition;
+        import com.google.android.gms.maps.model.LatLng;
+        import com.google.android.gms.maps.model.Marker;
+        import com.google.android.gms.maps.model.MarkerOptions;
+
         import org.apache.http.HttpEntity;
         import org.apache.http.HttpResponse;
         import org.apache.http.NameValuePair;
@@ -45,14 +66,22 @@ import android.support.v4.view.ViewPager;
         import org.apache.http.client.methods.HttpPost;
         import org.apache.http.impl.client.DefaultHttpClient;
         import org.apache.http.message.BasicNameValuePair;
+        import org.json.JSONArray;
         import org.json.JSONException;
         import org.json.JSONObject;
 
         import java.io.BufferedReader;
+        import java.io.IOException;
         import java.io.InputStream;
         import java.io.InputStreamReader;
         import java.util.ArrayList;
         import java.util.List;
+
+        import okhttp3.Call;
+        import okhttp3.Callback;
+        import okhttp3.OkHttpClient;
+        import okhttp3.Request;
+        import okhttp3.Response;
 
 /**
  * Demonstrates a "screen-slide" animation using a {@link ViewPager}. Because {@link ViewPager}
@@ -65,7 +94,8 @@ import android.support.v4.view.ViewPager;
  *
  * @see ScreenSlidePageFragment
  */
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener,
+        OnMapReadyCallback {
 
     public static MainActivity instance;
 
@@ -84,6 +114,25 @@ public class MainActivity extends AppCompatActivity {
      * The pager adapter, which provides the pages to the view pager widget.
      */
     private PagerAdapter mPagerAdapter;
+    private final String RADIUS = "2000";
+    private final String TAG = "";
+
+    // Google API declaring
+    public GoogleMap mMap;
+    private GoogleApiClient mGoogleApiClient;
+    private Location mLastLocation;
+    private LatLng mMyCoordinate;
+    private List<NearbyPeople> mPeopleList;
+
+    // Boolean declaring
+    private boolean myMarkerAdded = false;
+    private boolean myInformationIsCollected = false;
+
+    // Local Object Declaring
+    private NearbyPeople currentMarkerClicked;
+
+    // Declare the map fragment
+    SupportMapFragment mapFragment;
 
     protected void setupSlider() {
         setContentView(R.layout.activity_screen_slide);
@@ -103,6 +152,12 @@ public class MainActivity extends AppCompatActivity {
                 invalidateOptionsMenu();
             }
         });
+        // about to create the connection only once
+        // taking care about the battery -- properties and stuffs
+        if (myInformationIsCollected == false) {
+            getConnection();
+            myInformationIsCollected = true;
+        }
 
     }
 
@@ -150,6 +205,165 @@ public class MainActivity extends AppCompatActivity {
         }
 
         return super.onOptionsItemSelected(item);
+    }
+
+    @Override
+    public void onConnected(Bundle bundle) {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+                && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            return;
+        }
+        mLastLocation = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
+
+        if (mLastLocation != null) {
+            mMyCoordinate = new LatLng(mLastLocation.getLatitude(),
+                    mLastLocation.getLongitude());
+
+            if (isStillConnected()) {
+                updateCameraPosition();
+                //getNearByPerson(mMyCoordinate);
+            } else {
+                return;
+            }
+        } else {
+
+        }
+
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
+
+    }
+
+    @Override
+    public void onConnectionFailed(ConnectionResult connectionResult) {
+
+    }
+
+    @Override
+    public void onMapReady(GoogleMap googleMap) {
+        Log.d("letsgo", "we ready bois");
+        mMap = googleMap;
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+                && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            return;
+        }
+        mMap.setMyLocationEnabled(true);
+        mMap.setBuildingsEnabled(true);
+        mMap.setOnMarkerClickListener(new GoogleMap.OnMarkerClickListener() {
+            @Override
+            // Not completed
+            public boolean onMarkerClick(Marker marker) {
+
+                return true;
+            }
+        });
+    }
+
+
+    private void getConnection() {
+        if(mGoogleApiClient == null) {
+            mGoogleApiClient = new GoogleApiClient.Builder(this)
+                    .addConnectionCallbacks(this)
+                    .addOnConnectionFailedListener(this)
+                    .addApi(LocationServices.API)
+                    .addApi(Places.GEO_DATA_API)
+                    .addApi(Places.PLACE_DETECTION_API)
+                    .build();
+        }
+    }
+
+    private List<NearbyPeople> getListofPeople(String jsonData) throws JSONException {
+        List<NearbyPeople> peopleList = new ArrayList<>();
+        JSONObject data = new JSONObject(jsonData);
+        JSONArray results = data.getJSONArray("results");
+
+        for(int i = 0; i < results.length(); i++ ) {
+            JSONObject currentObject = results.getJSONObject(i);
+
+            String currentId = currentObject.getString("place_id");
+            String currentTitle = currentObject.getString("name");
+            String currentAddress = currentObject.getString("vicinity");
+            double currentLatitude = currentObject.getJSONObject("geometry")
+                    .getJSONObject("location")
+                    .getDouble("lat");
+            double currentLongitude = currentObject.getJSONObject("geometry")
+                    .getJSONObject("location")
+                    .getDouble("lng");
+
+            peopleList.add(new NearbyPeople(
+                    currentId,
+                    currentTitle,
+                    currentAddress,
+                    currentLongitude,
+                    currentLatitude
+            ));
+        }
+
+        return peopleList;
+    }
+
+    private void updateCameraPosition() {
+        final CameraPosition cameraPosition = new CameraPosition.Builder()
+                .target(mMyCoordinate)
+                .zoom(13.5f)
+                .bearing(0)
+                .tilt(25)
+                .build();
+        mMap.animateCamera(CameraUpdateFactory.newCameraPosition(cameraPosition));
+        // Then make sure the my marker is only added once
+        if (myMarkerAdded == false) {
+            mMap.addMarker(new MarkerOptions()
+                    .position(mMyCoordinate)
+                    .title("Hello world"));
+            myMarkerAdded = true;
+        }
+    }
+
+    private void placeMakers() {
+        // create fake data
+
+        // Loading data to get location and put on the Map
+        for (NearbyPeople p : mPeopleList) {
+            MarkerOptions markerOptions = new MarkerOptions()
+                    .position(p.getCoordinates())
+                    .title(p.getName())
+                    .snippet(p.getId());
+            mMap.addMarker(markerOptions);
+        }
+    }
+
+    public void loadMap() {
+        mapFragment = (SupportMapFragment) getSupportFragmentManager()
+                .findFragmentById(R.id.map);
+        mapFragment.getMapAsync(this);
+    }
+
+    private boolean isStillConnected() {
+        ConnectivityManager manager = (ConnectivityManager)
+                getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo networkInfo = manager.getActiveNetworkInfo();
+
+        boolean isAvailable = false;
+
+        if (networkInfo != null && networkInfo.isConnected()) {
+            isAvailable = true;
+        }
+        return isAvailable;
+    }
+
+
+    /* *
+    * UPDATE LOCATION
+    * */
+    protected void createLocationRequest() {
+        LocationRequest mLocationRequest = new LocationRequest();
+        mLocationRequest.setInterval(10000);
+        mLocationRequest.setFastestInterval(5000);
+        mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
     }
 
     /**

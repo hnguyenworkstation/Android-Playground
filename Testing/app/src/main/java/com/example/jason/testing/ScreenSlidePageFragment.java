@@ -20,14 +20,13 @@ package com.example.jason.testing;
         import android.view.LayoutInflater;
         import android.view.View;
         import android.view.ViewGroup;
-        import android.widget.TextView;
 
 /**
  * A fragment representing a single step in a wizard. The fragment shows a dummy title indicating
  * the page number, along with some dummy text.
  *
  */
-public class ScreenSlidePageFragment extends Fragment {
+public class ScreenSlidePageFragment extends Fragment implements CustomMapFragment.OnMapReadyListener {
     /**
      * The argument key for the page number this fragment represents.
      */
@@ -37,6 +36,8 @@ public class ScreenSlidePageFragment extends Fragment {
      * The fragment's page number, which is set to the argument value for {@link #ARG_PAGE}.
      */
     private int mPageNumber;
+    private static ScreenSlidePageFragment self;
+    private static CustomMapFragment mMapFragment;
 
     /**
      * Factory method for this fragment class. Constructs a new fragment for the given page number.
@@ -47,15 +48,21 @@ public class ScreenSlidePageFragment extends Fragment {
             case 0:
                 return new FeedFragment();
             case 1:
-                return new FeedFragment();
+                mMapFragment = CustomMapFragment.newInstance();
+                if(self == null) {
+                    new ScreenSlidePageFragment();
+                }
+                self.getChildFragmentManager().beginTransaction().replace(R.id.map, mMapFragment).commit();
+
             case 2:
-                return new FeedFragment();
+                return new FriendFragment();
             default:
                 return null;
         }
     }
 
     public ScreenSlidePageFragment() {
+        self = this;
     }
 
     @Override
@@ -79,5 +86,11 @@ public class ScreenSlidePageFragment extends Fragment {
      */
     public int getPageNumber() {
         return mPageNumber;
+    }
+
+    @Override
+    public void onMapReady() {
+
+        MainActivity.instance.mMap = mMapFragment.getMap();
     }
 }
